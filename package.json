@@ -1,0 +1,58 @@
+{
+  "name": "solar-system-explorer",
+  "version": "1.0.0",
+  "description": "交互式 3D 太阳系探索器 — 基于真实 NASA JPL 天文数据，支持行星/卫星可视化、自定义小行星轨道与探索任务",
+  "author": {
+    "name": "何健 (He Jian)",
+    "url": "https://hj1982.cn"
+  },
+  "license": "MIT",
+  "homepage": "https://hj1982.cn/solar-system",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/HeJian1982/solar-system-explorer.git"
+  },
+  "keywords": [
+    "solar-system",
+    "astronomy",
+    "three.js",
+    "react-three-fiber",
+    "nextjs",
+    "3d-visualization",
+    "education",
+    "nasa-data"
+  ],
+  "private": false,
+  "engines": {
+    "node": ">=20",
+    "npm": ">=9"
+  },
+  "scripts": {
+    "dev": "next dev -p 3100",
+    "build": "next build",
+    "start": "next start -p 3100",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@react-three/drei": "^9.88.0",
+    "@react-three/fiber": "^8.15.0",
+    "framer-motion": "^10.16.0",
+    "next": "^14.2.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "three": "^0.160.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@types/three": "^0.160.0",
+    "autoprefixer": "^10.4.16",
+    "eslint": "^8.54.0",
+    "eslint-config-next": "^14.2.0",
+    "postcss": "^8.4.31",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.3.0"
+  }
+}
