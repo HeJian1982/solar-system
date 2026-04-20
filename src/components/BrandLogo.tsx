@@ -21,10 +21,10 @@ export function BrandLogo() {
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 1.2, duration: 0.6 }}
       className="fixed bottom-3 right-3 z-[100] group"
-      title="访问作者主页"
+      title="何健 · hj1982.cn"
     >
       <div
-        className="flex items-center gap-2 px-3 py-1.5 rounded-full
+        className="flex items-center gap-2 px-2 py-1 md:px-3 md:py-1.5 rounded-full
                    bg-gradient-to-r from-blue-500/15 via-purple-500/15 to-pink-500/15
                    backdrop-blur-md border border-white/20
                    hover:border-white/40 hover:from-blue-500/25 hover:via-purple-500/25 hover:to-pink-500/25
@@ -32,14 +32,15 @@ export function BrandLogo() {
       >
         {/* 圆形头像占位（渐变背景 + 文字） */}
         <div
-          className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white
+          className="w-5 h-5 md:w-6 md:h-6 rounded-full flex items-center justify-center text-[9px] md:text-[10px] font-bold text-white
                      bg-gradient-to-br from-blue-500 to-purple-600 shadow-inner"
           aria-hidden="true"
         >
           HJ
         </div>
 
-        <div className="flex flex-col leading-tight">
+        {/* 移动端隐藏文字，只显示头像 */}
+        <div className="hidden md:flex flex-col leading-tight">
           <span className="text-white text-[11px] font-semibold">何健 · He Jian</span>
           <span className="text-white/60 text-[9px] group-hover:text-white/90 transition-colors">
             hj1982.cn ↗

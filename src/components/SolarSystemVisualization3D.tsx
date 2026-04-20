@@ -18,18 +18,26 @@ import {
   calculateOrbitalPosition,
   type CelestialBody,
 } from '@/data/solar-system-data';
-import { 
-  getLocalPlanetTextures, 
+import {
+  getLocalPlanetTextures,
   clearLocalTextureCache,
-  handleTextureContextLost 
 } from '@/lib/local-texture-loader';
+import {
+  calculateAsteroidPosition,
+  type CustomAsteroid,
+} from '@/lib/solar-system-explorer';
 
 interface SolarSystemVisualization3DProps {
   showOrbits?: boolean;
   showLabels?: boolean;
   showAsteroidBelt?: boolean; // 显示小行星带
   showSatellites?: boolean;   // 显示卫星（默认隐藏）
-  timeSpeed?: number;          // 时间流速倍率
+  timeSpeed?: number;          // 时间流速倍率（受控，默认 1）
+  isPaused?: boolean;          // 是否暂停（受控，默认 false）
+  onTimeSpeedChange?: (speed: number) => void;
+  onPauseToggle?: () => void;
+  onBodyClick?: (body: CelestialBody) => void; // 天体点击回调（任务 / 积分 / 趣味知识）
+  customAsteroids?: CustomAsteroid[];          // 自定义小行星列表（渲染到 3D 场景）
   className?: string;
 }
 
@@ -73,26 +81,104 @@ function getProceduralTexture(body: CelestialBody): THREE.CanvasTexture {
       ctx.arc(x, y, radius, 0, Math.PI * 2);
       ctx.fill();
     }
-  } else if (['jupiter', 'saturn'].includes(body.id)) {
-    // 气态巨行星：条带状云层
-    for (let y = 0; y < canvas.height; y += 2) {
-      const lightness = 0.7 + Math.sin(y * 0.05) * 0.3;
-      const r = parseInt(body.color.slice(1, 3), 16);
-      const g = parseInt(body.color.slice(3, 5), 16);
-      const b = parseInt(body.color.slice(5, 7), 16);
-      ctx.fillStyle = `rgb(${r * lightness}, ${g * lightness}, ${b * lightness})`;
-      ctx.fillRect(0, y, canvas.width, 2);
-      
-      // 添加大红斑类特征
-      if (Math.random() > 0.98) {
-        const spotX = Math.random() * canvas.width;
-        const spotRadius = 10 + Math.random() * 20;
-        const spotGradient = ctx.createRadialGradient(spotX, y, 0, spotX, y, spotRadius);
-        spotGradient.addColorStop(0, `rgba(${r * 1.2}, ${g * 0.8}, ${b * 0.8}, 0.5)`);
-        spotGradient.addColorStop(1, 'transparent');
-        ctx.fillStyle = spotGradient;
-        ctx.fillRect(spotX - spotRadius, y - spotRadius, spotRadius * 2, spotRadius * 2);
+  } else if (body.id === 'jupiter') {
+    // 木星：鲜明条带 + 大红斑
+    const bands = [
+      { y: 0, h: 30, color: '#C4A882' },
+      { y: 30, h: 25, color: '#B8976A' },
+      { y: 55, h: 35, color: '#D4B896' },
+      { y: 90, h: 20, color: '#A0845C' },
+      { y: 110, h: 40, color: '#D9C4A0' },
+      { y: 150, h: 25, color: '#C09060' },
+      { y: 175, h: 30, color: '#E0CDB0' },
+      { y: 205, h: 25, color: '#B08050' },
+      { y: 230, h: 26, color: '#D4B896' },
+    ];
+    bands.forEach(({ y: by, h, color }) => {
+      ctx.fillStyle = color;
+      ctx.fillRect(0, by, canvas.width, h);
+      for (let row = 0; row < h; row += 2) {
+        ctx.fillStyle = `rgba(0,0,0,${0.03 + Math.sin((by + row) * 0.15) * 0.04})`;
+        ctx.fillRect(0, by + row, canvas.width, 2);
       }
+    });
+    // 大红斑
+    const grs = ctx.createRadialGradient(340, 130, 0, 340, 130, 28);
+    grs.addColorStop(0, 'rgba(200, 80, 50, 0.7)');
+    grs.addColorStop(0.6, 'rgba(180, 90, 60, 0.4)');
+    grs.addColorStop(1, 'transparent');
+    ctx.fillStyle = grs;
+    ctx.beginPath();
+    ctx.ellipse(340, 130, 30, 18, 0, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (body.id === 'saturn') {
+    // 土星：柔和金色条带，对比度低于木星
+    const bands = [
+      { y: 0, h: 35, color: '#E8D5B0' },
+      { y: 35, h: 30, color: '#D4C49A' },
+      { y: 65, h: 40, color: '#F0E0C0' },
+      { y: 105, h: 25, color: '#C8B888' },
+      { y: 130, h: 35, color: '#E0D0A8' },
+      { y: 165, h: 30, color: '#D0BF96' },
+      { y: 195, h: 35, color: '#ECD8B4' },
+      { y: 230, h: 26, color: '#D8C8A0' },
+    ];
+    bands.forEach(({ y: by, h, color }) => {
+      ctx.fillStyle = color;
+      ctx.fillRect(0, by, canvas.width, h);
+      for (let row = 0; row < h; row += 2) {
+        ctx.fillStyle = `rgba(0,0,0,${0.01 + Math.sin((by + row) * 0.1) * 0.02})`;
+        ctx.fillRect(0, by + row, canvas.width, 2);
+      }
+    });
+    // 北极六角风暴（顶部微弱暗斑）
+    const hex = ctx.createRadialGradient(256, 10, 0, 256, 10, 25);
+    hex.addColorStop(0, 'rgba(160, 140, 100, 0.3)');
+    hex.addColorStop(1, 'transparent');
+    ctx.fillStyle = hex;
+    ctx.beginPath();
+    ctx.arc(256, 10, 25, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (body.id === 'uranus') {
+    // 天王星：均匀淡蓝绿色，几乎无特征
+    const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    gradient.addColorStop(0, '#6FE8D0');
+    gradient.addColorStop(0.3, '#5DD4C4');
+    gradient.addColorStop(0.5, '#4DC8BC');
+    gradient.addColorStop(0.7, '#5DD4C4');
+    gradient.addColorStop(1, '#6FE8D0');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // 极其微弱的云带
+    for (let y = 0; y < canvas.height; y += 8) {
+      ctx.fillStyle = `rgba(255,255,255,${0.02 + Math.sin(y * 0.08) * 0.015})`;
+      ctx.fillRect(0, y, canvas.width, 4);
+    }
+  } else if (body.id === 'neptune') {
+    // 海王星：鲜艳深蓝色，有可见风暴
+    const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    gradient.addColorStop(0, '#3070D0');
+    gradient.addColorStop(0.3, '#2860C0');
+    gradient.addColorStop(0.5, '#2050B0');
+    gradient.addColorStop(0.7, '#2860C0');
+    gradient.addColorStop(1, '#3070D0');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // 大暗斑
+    const ds = ctx.createRadialGradient(300, 110, 0, 300, 110, 22);
+    ds.addColorStop(0, 'rgba(10, 30, 80, 0.6)');
+    ds.addColorStop(0.7, 'rgba(20, 40, 100, 0.3)');
+    ds.addColorStop(1, 'transparent');
+    ctx.fillStyle = ds;
+    ctx.beginPath();
+    ctx.ellipse(300, 110, 25, 15, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // 明亮的甲烷云
+    ctx.fillStyle = 'rgba(180, 220, 255, 0.25)';
+    for (let i = 0; i < 15; i++) {
+      const cx = Math.random() * canvas.width;
+      const cy = Math.random() * canvas.height;
+      ctx.fillRect(cx, cy, 12 + Math.random() * 20, 3 + Math.random() * 5);
     }
   } else if (body.id === 'earth') {
     // 地球：简单的蓝绿色图案
@@ -132,23 +218,238 @@ function getProceduralTexture(body: CelestialBody): THREE.CanvasTexture {
       ctx.fillStyle = `rgba(139, 69, 19, ${Math.random() * 0.3})`;
       ctx.fillRect(x, y, 5 + Math.random() * 10, 5 + Math.random() * 10);
     }
-  } else if (body.type === 'moon') {
-    // 卫星：坑洼表面
-    ctx.fillStyle = '#9E9E9E';
+  } else if (body.id === 'moon') {
+    // 月球：灰色 + 月海（暗色斑块）+ 陨石坑
+    ctx.fillStyle = '#B0ADA8';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
-    // 添加陨石坑
-    for (let i = 0; i < 30; i++) {
+    // 月海（大片暗区）
+    const marias = [
+      { x: 120, y: 80, rx: 60, ry: 40, color: 'rgba(80, 78, 74, 0.5)' },
+      { x: 280, y: 100, rx: 80, ry: 50, color: 'rgba(75, 73, 70, 0.45)' },
+      { x: 380, y: 150, rx: 50, ry: 35, color: 'rgba(85, 82, 78, 0.4)' },
+      { x: 180, y: 180, rx: 70, ry: 45, color: 'rgba(70, 68, 65, 0.5)' },
+    ];
+    marias.forEach(m => {
+      const g = ctx.createRadialGradient(m.x, m.y, 0, m.x, m.y, Math.max(m.rx, m.ry));
+      g.addColorStop(0, m.color);
+      g.addColorStop(1, 'transparent');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.ellipse(m.x, m.y, m.rx, m.ry, 0, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    // 陨石坑
+    for (let i = 0; i < 40; i++) {
+      const cx = Math.random() * canvas.width;
+      const cy = Math.random() * canvas.height;
+      const r = 3 + Math.random() * 14;
+      ctx.strokeStyle = `rgba(90, 88, 84, ${0.3 + Math.random() * 0.3})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+      const cg = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      cg.addColorStop(0, `rgba(60, 58, 55, ${0.15 + Math.random() * 0.2})`);
+      cg.addColorStop(1, 'transparent');
+      ctx.fillStyle = cg;
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+    }
+  } else if (body.id === 'io') {
+    // 木卫一：硫磺覆盖，黄橙色 + 火山斑点
+    ctx.fillStyle = '#E8C840';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // 不规则硫磺色块
+    for (let i = 0; i < 60; i++) {
+      const colors = ['#F0D848', '#D4A830', '#C89020', '#F8E060', '#E0B030'];
+      ctx.fillStyle = colors[Math.floor(Math.random() * colors.length)];
+      ctx.globalAlpha = 0.3 + Math.random() * 0.4;
       const x = Math.random() * canvas.width;
       const y = Math.random() * canvas.height;
-      const radius = 5 + Math.random() * 20;
-      const craterGradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
-      craterGradient.addColorStop(0, 'rgba(60, 60, 60, 0.5)');
-      craterGradient.addColorStop(1, 'transparent');
-      ctx.fillStyle = craterGradient;
       ctx.beginPath();
-      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.ellipse(x, y, 8 + Math.random() * 25, 6 + Math.random() * 18, Math.random() * Math.PI, 0, Math.PI * 2);
       ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    // 火山口（暗红/黑色圆斑）
+    for (let i = 0; i < 15; i++) {
+      const vx = Math.random() * canvas.width;
+      const vy = Math.random() * canvas.height;
+      const vr = 3 + Math.random() * 8;
+      const vg = ctx.createRadialGradient(vx, vy, 0, vx, vy, vr * 2);
+      vg.addColorStop(0, 'rgba(80, 20, 10, 0.7)');
+      vg.addColorStop(0.5, 'rgba(160, 60, 20, 0.3)');
+      vg.addColorStop(1, 'transparent');
+      ctx.fillStyle = vg;
+      ctx.beginPath(); ctx.arc(vx, vy, vr * 2, 0, Math.PI * 2); ctx.fill();
+    }
+  } else if (body.id === 'europa') {
+    // 木卫二：冰蓝白色表面 + 褐红色裂缝纹
+    ctx.fillStyle = '#D8E4EC';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // 微妙亮暗变化
+    for (let i = 0; i < 30; i++) {
+      ctx.fillStyle = `rgba(200, 215, 225, ${0.2 + Math.random() * 0.3})`;
+      const x = Math.random() * canvas.width;
+      const y = Math.random() * canvas.height;
+      ctx.beginPath();
+      ctx.ellipse(x, y, 15 + Math.random() * 40, 10 + Math.random() * 30, Math.random() * Math.PI, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // 冰裂纹
+    ctx.strokeStyle = 'rgba(140, 80, 50, 0.35)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 25; i++) {
+      ctx.beginPath();
+      let lx = Math.random() * canvas.width;
+      let ly = Math.random() * canvas.height;
+      ctx.moveTo(lx, ly);
+      for (let j = 0; j < 6; j++) {
+        lx += (Math.random() - 0.5) * 60;
+        ly += (Math.random() - 0.5) * 40;
+        ctx.lineTo(lx, ly);
+      }
+      ctx.stroke();
+    }
+  } else if (body.id === 'ganymede') {
+    // 木卫三：最大卫星，深浅交错沟槽地形
+    ctx.fillStyle = '#9A917C';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // 亮暗区域
+    for (let i = 0; i < 20; i++) {
+      const bright = Math.random() > 0.5;
+      ctx.fillStyle = bright ? 'rgba(180, 175, 160, 0.4)' : 'rgba(70, 65, 55, 0.3)';
+      const x = Math.random() * canvas.width;
+      const y = Math.random() * canvas.height;
+      ctx.beginPath();
+      ctx.ellipse(x, y, 20 + Math.random() * 50, 15 + Math.random() * 35, Math.random() * Math.PI, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // 沟槽纹
+    ctx.strokeStyle = 'rgba(120, 115, 100, 0.3)';
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < 15; i++) {
+      ctx.beginPath();
+      const sx = Math.random() * canvas.width;
+      const sy = Math.random() * canvas.height;
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx + (Math.random() - 0.5) * 100, sy + (Math.random() - 0.5) * 60);
+      ctx.stroke();
+    }
+  } else if (body.id === 'callisto') {
+    // 木卫四：密集陨石坑 + 亮斑
+    ctx.fillStyle = '#5C5445';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    for (let i = 0; i < 60; i++) {
+      const cx = Math.random() * canvas.width;
+      const cy = Math.random() * canvas.height;
+      const r = 3 + Math.random() * 16;
+      const cg = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      cg.addColorStop(0, `rgba(40, 36, 30, ${0.3 + Math.random() * 0.3})`);
+      cg.addColorStop(0.7, `rgba(100, 95, 85, 0.15)`);
+      cg.addColorStop(1, 'transparent');
+      ctx.fillStyle = cg;
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+    }
+    // 亮射线坑
+    for (let i = 0; i < 5; i++) {
+      const bx = Math.random() * canvas.width;
+      const by = Math.random() * canvas.height;
+      const bg = ctx.createRadialGradient(bx, by, 0, bx, by, 12 + Math.random() * 10);
+      bg.addColorStop(0, 'rgba(200, 195, 180, 0.5)');
+      bg.addColorStop(1, 'transparent');
+      ctx.fillStyle = bg;
+      ctx.beginPath(); ctx.arc(bx, by, 20, 0, Math.PI * 2); ctx.fill();
+    }
+  } else if (body.id === 'titan') {
+    // 土卫六：橙色迷雾大气，几乎看不到表面
+    const tg = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    tg.addColorStop(0, '#C89050');
+    tg.addColorStop(0.3, '#D4A060');
+    tg.addColorStop(0.7, '#C08848');
+    tg.addColorStop(1, '#B07838');
+    ctx.fillStyle = tg;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // 朦胧大气条纹
+    for (let i = 0; i < 12; i++) {
+      ctx.fillStyle = `rgba(220, 180, 120, ${0.08 + Math.random() * 0.12})`;
+      const y = Math.random() * canvas.height;
+      ctx.fillRect(0, y, canvas.width, 5 + Math.random() * 15);
+    }
+  } else if (body.id === 'enceladus') {
+    // 土卫二：极亮冰白色，南极冰泉喷射
+    ctx.fillStyle = '#F0EDE8';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    for (let i = 0; i < 20; i++) {
+      ctx.fillStyle = `rgba(230, 240, 250, ${0.3 + Math.random() * 0.3})`;
+      const x = Math.random() * canvas.width;
+      const y = Math.random() * canvas.height;
+      ctx.beginPath();
+      ctx.ellipse(x, y, 10 + Math.random() * 30, 8 + Math.random() * 20, Math.random() * Math.PI, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // 南极裂缝（蓝色线）
+    ctx.strokeStyle = 'rgba(100, 160, 200, 0.4)';
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < 6; i++) {
+      ctx.beginPath();
+      const sx = 100 + Math.random() * 300;
+      ctx.moveTo(sx, canvas.height - 20);
+      ctx.lineTo(sx + (Math.random() - 0.5) * 40, canvas.height - 40 - Math.random() * 30);
+      ctx.stroke();
+    }
+  } else if (body.id === 'iapetus') {
+    // 土卫八：半黑半白双色
+    ctx.fillStyle = '#E0DCD6';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // 左半暗（前导半球）
+    const ig = ctx.createLinearGradient(0, 0, canvas.width, 0);
+    ig.addColorStop(0, 'rgba(40, 30, 25, 0.85)');
+    ig.addColorStop(0.45, 'rgba(40, 30, 25, 0.7)');
+    ig.addColorStop(0.55, 'rgba(40, 30, 25, 0.1)');
+    ig.addColorStop(1, 'transparent');
+    ctx.fillStyle = ig;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  } else if (body.id === 'triton') {
+    // 海卫一：粉蓝色氮冰 + 暗斑
+    const trg = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    trg.addColorStop(0, '#B8D8E8');
+    trg.addColorStop(0.4, '#D0B8B0');
+    trg.addColorStop(1, '#A0C8D8');
+    ctx.fillStyle = trg;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // 氮间歇泉暗斑
+    for (let i = 0; i < 10; i++) {
+      const sx = Math.random() * canvas.width;
+      const sy = canvas.height * 0.5 + Math.random() * canvas.height * 0.4;
+      const sg = ctx.createRadialGradient(sx, sy, 0, sx, sy, 8 + Math.random() * 12);
+      sg.addColorStop(0, 'rgba(60, 50, 50, 0.4)');
+      sg.addColorStop(1, 'transparent');
+      ctx.fillStyle = sg;
+      ctx.beginPath(); ctx.arc(sx, sy, 15, 0, Math.PI * 2); ctx.fill();
+    }
+  } else if (body.type === 'moon') {
+    // 其他卫星：使用各自的 color 做基底 + 陨石坑
+    ctx.fillStyle = body.color;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // 亮暗变化
+    for (let i = 0; i < 25; i++) {
+      const dark = Math.random() > 0.5;
+      ctx.fillStyle = dark ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.1)';
+      const x = Math.random() * canvas.width;
+      const y = Math.random() * canvas.height;
+      ctx.beginPath();
+      ctx.ellipse(x, y, 10 + Math.random() * 25, 8 + Math.random() * 18, Math.random() * Math.PI, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // 陨石坑
+    for (let i = 0; i < 20; i++) {
+      const cx = Math.random() * canvas.width;
+      const cy = Math.random() * canvas.height;
+      const r = 3 + Math.random() * 12;
+      const cg = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      cg.addColorStop(0, 'rgba(0,0,0,0.2)');
+      cg.addColorStop(0.7, 'rgba(0,0,0,0.05)');
+      cg.addColorStop(1, 'transparent');
+      ctx.fillStyle = cg;
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
     }
   } else {
     // 其他行星：基础纹理变化
@@ -173,9 +474,59 @@ function getProceduralTexture(body: CelestialBody): THREE.CanvasTexture {
   return texture;
 }
 
+// 程序化光环纹理（横向渐变表示从内到外的环带结构）
+const globalRingTextureCache = new Map<string, THREE.CanvasTexture>();
+function getRingTexture(planetId: string): THREE.CanvasTexture {
+  if (globalRingTextureCache.has(planetId)) return globalRingTextureCache.get(planetId)!;
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d')!;
+  if (planetId === 'saturn') {
+    // 土星环：D-C-B-Cassini缝-A-Encke缝-F 多环带
+    const g = ctx.createLinearGradient(0, 0, canvas.width, 0);
+    g.addColorStop(0.00, 'rgba(180,160,130,0.08)');
+    g.addColorStop(0.08, 'rgba(190,170,140,0.25)');
+    g.addColorStop(0.18, 'rgba(210,190,155,0.50)');
+    g.addColorStop(0.28, 'rgba(235,215,175,0.85)');
+    g.addColorStop(0.40, 'rgba(245,225,185,0.90)');
+    g.addColorStop(0.42, 'rgba(0,0,0,0.03)');          // Cassini Division
+    g.addColorStop(0.46, 'rgba(0,0,0,0.03)');
+    g.addColorStop(0.49, 'rgba(215,195,160,0.60)');
+    g.addColorStop(0.62, 'rgba(200,180,150,0.50)');
+    g.addColorStop(0.66, 'rgba(0,0,0,0.02)');          // Encke Gap
+    g.addColorStop(0.68, 'rgba(195,175,145,0.40)');
+    g.addColorStop(0.82, 'rgba(175,155,125,0.18)');
+    g.addColorStop(1.00, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  } else if (planetId === 'uranus') {
+    // 天王星环：窄而暗的环，间隔大
+    const g = ctx.createLinearGradient(0, 0, canvas.width, 0);
+    g.addColorStop(0.00, 'rgba(0,0,0,0)');
+    g.addColorStop(0.25, 'rgba(90,110,130,0.10)');
+    g.addColorStop(0.40, 'rgba(80,100,120,0.18)');
+    g.addColorStop(0.42, 'rgba(0,0,0,0)');
+    g.addColorStop(0.55, 'rgba(0,0,0,0)');
+    g.addColorStop(0.58, 'rgba(90,110,130,0.12)');
+    g.addColorStop(0.62, 'rgba(0,0,0,0)');
+    g.addColorStop(0.78, 'rgba(100,120,140,0.15)');
+    g.addColorStop(0.82, 'rgba(0,0,0,0)');
+    g.addColorStop(0.92, 'rgba(110,130,150,0.10)');
+    g.addColorStop(1.00, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  globalRingTextureCache.set(planetId, texture);
+  return texture;
+}
+
 // 小行星带组件
-function AsteroidBelt() {
-  const asteroidCount = 200; // 减少数量，避免视觉混乱
+function AsteroidBelt({ isMobile = false }: { isMobile?: boolean }) {
+  const asteroidCount = isMobile ? 100 : 200;
   const positions = useMemo(() => {
     const pos = new Float32Array(asteroidCount * 3);
     for (let i = 0; i < asteroidCount; i++) {
@@ -220,6 +571,8 @@ function CelestialBodyMesh({
   onBodyClick,
   enableRotation = true,
   rotationSpeed = 1,
+  isMobile = false,
+  showSatellites = false,
 }: {
   body: CelestialBody;
   time: number;
@@ -228,6 +581,8 @@ function CelestialBodyMesh({
   onBodyClick?: (body: CelestialBody) => void;
   enableRotation?: boolean;
   rotationSpeed?: number;
+  isMobile?: boolean;
+  showSatellites?: boolean;
 }) {
   const meshRef = useRef<THREE.Mesh>(null);
   const { SCALE } = SOLAR_SYSTEM_CONSTANTS;
@@ -240,17 +595,26 @@ function CelestialBodyMesh({
     // 默认缩放
     let currentScale = SCALE.distance;
     
-    // 卫星特殊处理：根据母行星的最小卫星轨道计算统一缩放倍数
-    // 确保最内层卫星轨道紧贴母行星，同时保留卫星间的相对轨道差异
+    // 卫星特殊处理：缩放轨道使之紧贴母行星，同时不侵入相邻行星轨道
     if (body.type === 'moon' && body.parent) {
       const parentData = SOLAR_SYSTEM_DATA.find(b => b.id === body.parent);
       if (parentData && parentData.satellites) {
         const parentDisplayRadius = parentData.radius * SCALE.planetRadius * 0.01;
-        // 找到母行星所有卫星中最小的轨道
-        const minSatelliteOrbit = Math.min(...parentData.satellites.map(s => s.semiMajorAxis));
-        // 计算统一的缩放倍数，使最小轨道卫星距离 = 母行星半径 * 1.2（更紧凑）
-        const neededScale = (parentDisplayRadius * 1.2) / (minSatelliteOrbit * SCALE.distance);
-        currentScale = SCALE.distance * neededScale;
+        const minSatOrbit = Math.min(...parentData.satellites.map(s => s.semiMajorAxis));
+        const maxSatOrbit = Math.max(...parentData.satellites.map(s => s.semiMajorAxis));
+        // 基础缩放：使最内层卫星 = 母行星半径 * 3.5（保留足够视觉间距）
+        const innerScale = (parentDisplayRadius * 3.5) / (minSatOrbit * SCALE.distance);
+        // 上限：最外层卫星不超过到最近行星距离的30%
+        const planets = SOLAR_SYSTEM_DATA.filter(b => b.type === 'planet');
+        let minGap = Infinity;
+        for (const p of planets) {
+          if (p.id === parentData.id) continue;
+          const gap = Math.abs(p.semiMajorAxis - parentData.semiMajorAxis) * SCALE.distance;
+          if (gap < minGap) minGap = gap;
+        }
+        const maxAllowedRadius = minGap * 0.3;
+        const outerScale = maxAllowedRadius / (maxSatOrbit * SCALE.distance);
+        currentScale = SCALE.distance * Math.min(innerScale, outerScale);
       } else {
         currentScale = SCALE.distance * 50;
       }
@@ -280,10 +644,14 @@ function CelestialBodyMesh({
     if (body.type === 'star') {
       return body.radius * SCALE.sunRadius * 0.01;
     }
-    // 卫星使用真实比例，但设置最小值确保可见
-    if (body.type === 'moon') {
-      // 卫星使用与行星相同的缩放比例，最小 0.12 确保小卫星可见
-      return Math.max(body.radius * SCALE.planetRadius * 0.01, 0.12);
+    if (body.type === 'moon' && body.parent) {
+      // 卫星：真实比例渲染，但设最小值防止完全看不见
+      // 最小值 = 母行星显示半径的 5%（相对最小值，不会让 Phobos 变成火星一半大）
+      const parentData = SOLAR_SYSTEM_DATA.find(b => b.id === body.parent);
+      const parentDisplayR = parentData ? parentData.radius * SCALE.planetRadius * 0.01 : 1;
+      const realR = body.radius * SCALE.planetRadius * 0.01;
+      const minR = parentDisplayR * 0.05;
+      return Math.max(realR, minR);
     }
     return body.radius * SCALE.planetRadius * 0.01;
   }, [body, SCALE]);
@@ -340,9 +708,18 @@ function CelestialBodyMesh({
       const parentData = SOLAR_SYSTEM_DATA.find(b => b.id === body.parent);
       if (parentData && parentData.satellites) {
         const parentDisplayRadius = parentData.radius * SCALE.planetRadius * 0.01;
-        const minSatelliteOrbit = Math.min(...parentData.satellites.map(s => s.semiMajorAxis));
-        const neededScale = (parentDisplayRadius * 1.2) / (minSatelliteOrbit * SCALE.distance);
-        orbitScale = SCALE.distance * neededScale;
+        const minSatOrbit = Math.min(...parentData.satellites.map(s => s.semiMajorAxis));
+        const maxSatOrbit = Math.max(...parentData.satellites.map(s => s.semiMajorAxis));
+        const innerScale = (parentDisplayRadius * 3.5) / (minSatOrbit * SCALE.distance);
+        const planets = SOLAR_SYSTEM_DATA.filter(b => b.type === 'planet');
+        let minGap = Infinity;
+        for (const p of planets) {
+          if (p.id === parentData.id) continue;
+          const gap = Math.abs(p.semiMajorAxis - parentData.semiMajorAxis) * SCALE.distance;
+          if (gap < minGap) minGap = gap;
+        }
+        const outerScale = (minGap * 0.3) / (maxSatOrbit * SCALE.distance);
+        orbitScale = SCALE.distance * Math.min(innerScale, outerScale);
       } else {
         orbitScale = SCALE.distance * 50;
       }
@@ -440,7 +817,7 @@ function CelestialBodyMesh({
         ref={meshRef} 
         position={position}
       >
-        <sphereGeometry args={[displayRadius, 32, 32]} />
+        <sphereGeometry args={[displayRadius, isMobile ? 16 : 32, isMobile ? 16 : 32]} />
         <meshStandardMaterial
           map={finalTexture}
           emissive={body.type === 'star' ? body.color : body.color}
@@ -461,21 +838,122 @@ function CelestialBodyMesh({
         />
       )}
 
-      {/* 光环（土星、天王星） */}
+      {/* 光环（土星、天王星）— 使用程序化纹理 + 真实轴倾角 */}
       {hasRings && (
-        <mesh position={position} rotation={[Math.PI / 2, 0, 0]}>
-          <ringGeometry args={[displayRadius * 1.5, displayRadius * 2.5, 64]} />
+        <mesh
+          position={position}
+          rotation={
+            body.id === 'saturn'
+              ? [Math.PI / 2, 0, 26.7 * Math.PI / 180]   // 土星轴倾 26.7°
+              : [Math.PI / 2, 0, 97.8 * Math.PI / 180]    // 天王星轴倾 97.8°
+          }
+        >
+          <ringGeometry args={[
+            displayRadius * (body.id === 'saturn' ? 1.3 : 1.5),
+            displayRadius * (body.id === 'saturn' ? 2.8 : 2.2),
+            128,
+          ]} />
           <meshStandardMaterial
-            color={body.color}
-            opacity={0.6}
+            map={getRingTexture(body.id)}
             transparent
+            opacity={body.id === 'saturn' ? 0.85 : 0.5}
             side={THREE.DoubleSide}
+            depthWrite={false}
           />
         </mesh>
       )}
       
-      {/* 渲染卫星（仅当showSatellites为true时） */}
+      {/* 渲染卫星 */}
+      {showSatellites && body.satellites?.map(satellite => (
+        <CelestialBodyMesh
+          key={satellite.id}
+          body={satellite}
+          time={time}
+          showOrbit={showOrbit}
+          parentPosition={position}
+          onBodyClick={onBodyClick}
+          enableRotation={enableRotation}
+          rotationSpeed={rotationSpeed}
+          isMobile={isMobile}
+          showSatellites={false}
+        />
+      ))}
     </group>
+  );
+}
+
+// 自定义小行星网格（球体 + 轨道线）
+function CustomAsteroidMesh({
+  asteroid,
+  time,
+  showOrbit,
+}: {
+  asteroid: CustomAsteroid;
+  time: number;
+  showOrbit: boolean;
+}) {
+  const { SCALE } = SOLAR_SYSTEM_CONSTANTS;
+
+  // 当前位置（Y-up 坐标系，与其他天体一致）
+  const position = useMemo(() => {
+    const pos = calculateAsteroidPosition(asteroid, time);
+    return [
+      pos.x * SCALE.distance,
+      pos.z * SCALE.distance,
+      pos.y * SCALE.distance,
+    ] as [number, number, number];
+  }, [asteroid, time, SCALE.distance]);
+
+  // 显示半径（较小但有下限保证可见）
+  const displayRadius = useMemo(() => {
+    return Math.max(asteroid.radius * SCALE.planetRadius * 0.02, 0.08);
+  }, [asteroid.radius, SCALE.planetRadius]);
+
+  // 轨道点（一个完整周期）
+  const orbitLine = useMemo(() => {
+    if (!showOrbit) return null;
+    const segments = 128;
+    const points: THREE.Vector3[] = [];
+    for (let i = 0; i <= segments; i++) {
+      const t = (i / segments) * asteroid.orbitalPeriod;
+      const pos = calculateAsteroidPosition(asteroid, t);
+      points.push(new THREE.Vector3(
+        pos.x * SCALE.distance,
+        pos.z * SCALE.distance,
+        pos.y * SCALE.distance,
+      ));
+    }
+    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+    const material = new THREE.LineBasicMaterial({
+      color: asteroid.color,
+      transparent: true,
+      opacity: 0.35,
+    });
+    return new THREE.Line(geometry, material);
+  }, [asteroid, showOrbit, SCALE.distance]);
+
+  useEffect(() => {
+    return () => {
+      if (orbitLine) {
+        orbitLine.geometry.dispose();
+        (orbitLine.material as THREE.Material).dispose();
+      }
+    };
+  }, [orbitLine]);
+
+  return (
+    <>
+      {orbitLine && <primitive object={orbitLine} />}
+      <mesh position={position}>
+        <sphereGeometry args={[displayRadius, 16, 16]} />
+        <meshStandardMaterial
+          color={asteroid.color}
+          emissive={asteroid.color}
+          emissiveIntensity={0.25}
+          roughness={0.7}
+        />
+      </mesh>
+    </>
   );
 }
 
@@ -483,19 +961,25 @@ function CelestialBodyMesh({
 function SolarSystemScene({
   showOrbits,
   showAsteroidBelt,
+  showSatellites,
   timeSpeed,
   onBodyClick,
   focusedBody,
   enableRotation,
   rotationSpeed,
+  customAsteroids,
+  isMobile = false,
 }: {
   showOrbits: boolean;
   showAsteroidBelt: boolean;
+  showSatellites: boolean;
   timeSpeed: number;
   onBodyClick?: (body: CelestialBody) => void;
   focusedBody: CelestialBody | null;
   enableRotation: boolean;
   rotationSpeed: number;
+  customAsteroids?: CustomAsteroid[];
+  isMobile?: boolean;
 }) {
   const [time, setTime] = useState(0);
   const { SCALE } = SOLAR_SYSTEM_CONSTANTS;
@@ -522,13 +1006,21 @@ function SolarSystemScene({
             parentPos.y * SCALE.distance
           );
           
-          // 计算卫星相对于母行星的位置（统一缩放）
+          // 计算卫星相对于母行星的位置（统一缩放 + 轨道夹紧）
           const parentDisplayRadius = parentBody.radius * SCALE.planetRadius * 0.01;
-          const minSatelliteOrbit = parentBody.satellites 
-            ? Math.min(...parentBody.satellites.map(s => s.semiMajorAxis))
-            : focusedBody.semiMajorAxis;
-          const neededScale = (parentDisplayRadius * 1.2) / (minSatelliteOrbit * SCALE.distance);
-          const moonScale = SCALE.distance * neededScale;
+          const sats = parentBody.satellites || [focusedBody];
+          const minSatOrbit = Math.min(...sats.map(s => s.semiMajorAxis));
+          const maxSatOrbit = Math.max(...sats.map(s => s.semiMajorAxis));
+          const innerScale = (parentDisplayRadius * 3.5) / (minSatOrbit * SCALE.distance);
+          const planets = SOLAR_SYSTEM_DATA.filter(b => b.type === 'planet');
+          let minGap = Infinity;
+          for (const p of planets) {
+            if (p.id === parentBody.id) continue;
+            const gap = Math.abs(p.semiMajorAxis - parentBody.semiMajorAxis) * SCALE.distance;
+            if (gap < minGap) minGap = gap;
+          }
+          const outerScale = (minGap * 0.3) / (maxSatOrbit * SCALE.distance);
+          const moonScale = SCALE.distance * Math.min(innerScale, outerScale);
           
           const moonPos = calculateOrbitalPosition(focusedBody, time);
           const moonOffset = new THREE.Vector3(
@@ -673,7 +1165,7 @@ function SolarSystemScene({
       />
 
       {/* 小行星带 */}
-      {showAsteroidBelt && <AsteroidBelt />}
+      {showAsteroidBelt && <AsteroidBelt isMobile={isMobile} />}
 
       {/* 渲染所有天体 */}
       {SOLAR_SYSTEM_DATA.map((body) => (
@@ -685,6 +1177,18 @@ function SolarSystemScene({
           onBodyClick={onBodyClick}
           enableRotation={enableRotation}
           rotationSpeed={rotationSpeed}
+          isMobile={isMobile}
+          showSatellites={showSatellites}
+        />
+      ))}
+
+      {/* 自定义小行星 */}
+      {customAsteroids?.map((asteroid) => (
+        <CustomAsteroidMesh
+          key={asteroid.id}
+          asteroid={asteroid}
+          time={time}
+          showOrbit={showOrbits}
         />
       ))}
 
@@ -707,29 +1211,38 @@ export function SolarSystemVisualization3D({
   showLabels = true,
   showAsteroidBelt = true,
   showSatellites: initialShowSatellites = false, // 默认隐藏卫星
-  timeSpeed = 1,
+  timeSpeed: externalTimeSpeed,
+  isPaused: externalIsPaused,
+  onTimeSpeedChange,
+  onPauseToggle,
+  onBodyClick,
+  customAsteroids,
   className = '',
 }: SolarSystemVisualization3DProps) {
-  const [currentTimeSpeed, setCurrentTimeSpeed] = useState(timeSpeed);
-  const [isPaused, setIsPaused] = useState(false);
+  // 时间速度 / 暂停状态：完全受控于 Parent，此处不维护内部副本
+  const currentTimeSpeed = externalTimeSpeed ?? 1;
+  const isPaused = externalIsPaused ?? false;
+
   const [selectedBody, setSelectedBody] = useState<CelestialBody | null>(null);
   const [focusedBody, setFocusedBody] = useState<CelestialBody | null>(null);
   const [showInfo, setShowInfo] = useState(false);
   const [texturesLoaded, setTexturesLoaded] = useState(false);
   const [enableRotation, setEnableRotation] = useState(true);
   const [rotationSpeed, setRotationSpeed] = useState(1);
-  const [isMobile, setIsMobile] = useState(false);
-  const [showControls, setShowControls] = useState(true);
-  const [showPlanetList, setShowPlanetList] = useState(true);
+  const [isMobile, setIsMobile] = useState(false);  // UI 布局用（窄屏）
+  const [isTouchDevice, setIsTouchDevice] = useState(false); // 真正移动设备（触屏+窄屏）— 用于性能降级
+  const [showControls, setShowControls] = useState(false);
+  const [showPlanetList, setShowPlanetList] = useState(false);
   const [showSatellites, setShowSatellites] = useState(initialShowSatellites);
 
-  // 检测移动端
+  // 检测移动端：区分“窄屏布局”和“真正触屏设备”
   useEffect(() => {
+    const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
     const checkMobile = () => {
-      const mobile = window.innerWidth < 768;
-      setIsMobile(mobile);
-      // 移动端默认收起控制面板和行星列表
-      if (mobile) {
+      const narrow = window.innerWidth < 768;
+      setIsMobile(narrow);
+      setIsTouchDevice(narrow && hasTouch); // 只有触屏+窄屏才算真正移动设备
+      if (narrow) {
         setShowControls(false);
         setShowPlanetList(false);
       }
@@ -750,6 +1263,8 @@ export function SolarSystemVisualization3D({
       setShowInfo(false);
     }
     setSelectedBody(body);
+    // 通知外层（任务进度 / 积分 / 趣味知识）
+    onBodyClick?.(body);
   };
 
   // 关闭信息面板
@@ -789,15 +1304,15 @@ export function SolarSystemVisualization3D({
   }, []);
 
   return (
-    <div className={`relative ${className}`} style={{ width: '100%', height: isMobile ? '350px' : '500px' }}>
+    <div className={`relative w-full h-full ${className}`}>
       <Canvas
         camera={{ position: [0, 50, 100], fov: 60 }}
         className="rounded-lg border border-white/10"
         style={{ background: '#000000' }}
         gl={{
-          antialias: true,
+          antialias: !isTouchDevice,
           alpha: false,
-          powerPreference: 'high-performance',
+          powerPreference: isTouchDevice ? 'default' : 'high-performance',
           preserveDrawingBuffer: false,
           failIfMajorPerformanceCaveat: false,
         }}
@@ -811,7 +1326,7 @@ export function SolarSystemVisualization3D({
             e.preventDefault();
             // 上下文丢失时清空缓存
             globalProceduralTextureCache.clear();
-            handleTextureContextLost(); // 清空真实纹理缓存
+            clearLocalTextureCache(); // 清空真实纹理缓存
           });
           
           canvas.addEventListener('webglcontextrestored', () => {
@@ -823,280 +1338,172 @@ export function SolarSystemVisualization3D({
         <SolarSystemScene
           showOrbits={showOrbits}
           showAsteroidBelt={showAsteroidBelt}
+          showSatellites={showSatellites}
           timeSpeed={isPaused ? 0 : currentTimeSpeed}
           onBodyClick={handleBodyClick}
           focusedBody={focusedBody}
           enableRotation={enableRotation}
           rotationSpeed={rotationSpeed}
+          customAsteroids={customAsteroids}
+          isMobile={isTouchDevice}
         />
       </Canvas>
 
-      {/* HTML 叠加层 - 行星标签 */}
-      {showLabels && (
-        isMobile ? (
-          // 移动端：可收起的简洁列表
-          <>
-            <button
-              onClick={() => setShowPlanetList(!showPlanetList)}
-              className="absolute top-2 right-2 bg-black/80 backdrop-blur-sm px-2 py-1 rounded-lg border border-white/20 text-[10px] text-white/90 z-10"
-            >
-              {showPlanetList ? '✕ 关闭' : '☰ 行星'}
-            </button>
-            {showPlanetList && (
-              <div className="absolute top-10 right-2 space-y-1 max-h-[200px] overflow-y-auto z-10">
-                {SOLAR_SYSTEM_DATA.filter(b => b.type !== 'moon').map((body) => (
-                  <div
-                    key={body.id}
-                    onClick={() => handleBodyClick(body)}
-                    className="flex items-center gap-1.5 px-2 py-1 rounded bg-black/90 backdrop-blur-sm border border-white/20 text-[10px] cursor-pointer"
-                    style={{
-                      borderColor: focusedBody?.id === body.id ? body.color : undefined,
-                    }}
-                  >
-                    <div
-                      className="w-2 h-2 rounded-full"
-                      style={{ backgroundColor: body.color }}
-                    />
-                    <span className="text-white/90">{body.nameChinese}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
-        ) : (
-          // 桌面端：紧凑列表
-          <div className="absolute top-4 right-4 space-y-0.5 max-h-[calc(100%-2rem)] overflow-y-auto w-[140px]">
-            {SOLAR_SYSTEM_DATA.map((body) => (
-              <div key={body.id}>
-                {/* 主天体 */}
-                <div
-                  onClick={() => handleBodyClick(body)}
-                  className="flex items-center gap-1.5 px-2 py-1 rounded bg-black/80 backdrop-blur-sm border border-white/20 text-[11px] cursor-pointer hover:bg-black/90 hover:border-blue-400/40 transition-all"
-                  style={{
-                    borderColor: focusedBody?.id === body.id ? body.color : undefined,
-                    boxShadow: focusedBody?.id === body.id ? `0 0 8px ${body.color}40` : undefined,
-                  }}
-                >
-                  <div
-                    className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                    style={{
-                      backgroundColor: body.color,
-                      boxShadow: `0 0 6px ${body.color}`,
-                    }}
-                  />
-                  <span className="text-white/90 truncate">{body.nameChinese}</span>
-                  {body.semiMajorAxis > 0 && (
-                    <span className="text-gray-500 text-[9px] ml-auto flex-shrink-0">
-                      {body.semiMajorAxis.toFixed(2)} AU
-                    </span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )
-      )}
-
-      {/* 控制面板 - 移动端可收起 */}
-      {isMobile ? (
-        // 移动端：简化的可收起控制面板
-        <>
+      {/* 右上角图标工具栏 — 所有按钮默认收起，点击展开面板 */}
+      <div className={`absolute ${isMobile ? 'top-2 right-2' : 'top-4 right-4'} z-20 flex gap-1.5`}>
+        {/* ☰ 行星列表 */}
+        {showLabels && (
           <button
-            onClick={() => setShowControls(!showControls)}
-            className="absolute bottom-2 left-2 bg-black/80 backdrop-blur-sm px-2 py-1 rounded-lg border border-white/20 text-[10px] text-white/90 z-10"
-          >
-            {showControls ? '✕ 关闭' : '⚙️ 控制'}
-          </button>
-          {showControls && (
-            <div className="absolute bottom-10 left-2 bg-black/90 backdrop-blur-sm px-3 py-2 rounded-lg border border-white/20 space-y-2 z-10 max-w-[180px]">
-              <div className="text-white text-[10px] font-bold">🌍 太阳系控制</div>
-              
-              {/* 播放/暂停 */}
-              <button
-                onClick={() => setIsPaused(!isPaused)}
-                className="w-full px-2 py-1 bg-blue-500/20 text-blue-300 rounded border border-blue-400/30 text-[10px]"
-              >
-                {isPaused ? '▶️ 继续' : '⏸️ 暂停'}
-              </button>
-
-              {/* 时间速度 */}
-              <div className="space-y-1">
-                <div className="flex justify-between text-[10px] text-gray-300">
-                  <span>时间流速</span>
-                  <span className="text-blue-300">{currentTimeSpeed.toFixed(1)}x</span>
-                </div>
-                <input
-                  type="range"
-                  min="0.1"
-                  max="10"
-                  step="0.1"
-                  value={currentTimeSpeed}
-                  onChange={(e) => setCurrentTimeSpeed(parseFloat(e.target.value))}
-                  className="w-full h-1"
-                />
-                <div className="flex gap-0.5">
-                  {[0.5, 1, 2, 5].map((speed) => (
-                    <button
-                      key={speed}
-                      onClick={() => setCurrentTimeSpeed(speed)}
-                      className="flex-1 px-1 py-0.5 bg-white/5 text-gray-300 text-[8px] rounded border border-white/10"
-                    >
-                      {speed}x
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* 自转控制 */}
-              <button
-                onClick={() => setEnableRotation(!enableRotation)}
-                className="w-full px-2 py-1 bg-purple-500/20 text-purple-300 rounded border border-purple-400/30 text-[10px]"
-              >
-                🌐 自转: {enableRotation ? 'ON' : 'OFF'}
-              </button>
-              
-              {enableRotation && (
-                <div className="space-y-1">
-                  <div className="flex justify-between text-[10px] text-gray-300">
-                    <span>自转速度</span>
-                    <span className="text-purple-300">{rotationSpeed.toFixed(1)}x</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0.1"
-                    max="5"
-                    step="0.1"
-                    value={rotationSpeed}
-                    onChange={(e) => setRotationSpeed(parseFloat(e.target.value))}
-                    className="w-full h-1"
-                  />
-                </div>
-              )}
-
-              {/* 操作提示 */}
-              <div className="text-[8px] text-gray-400 pt-1 border-t border-white/10">
-                👆 拖动旋转 | 双指缩放
-              </div>
-            </div>
-          )}
-        </>
-      ) : (
-        // 桌面端：完整控制面板
-        <div className="absolute bottom-4 left-4 bg-black/80 backdrop-blur-sm px-4 py-3 rounded-lg border border-white/20 space-y-2">
-          <div className="text-white text-sm font-bold mb-2">🌍 太阳系控制</div>
-          
-          {/* 播放/暂停 */}
-          <button
-            onClick={() => setIsPaused(!isPaused)}
-            className="w-full px-3 py-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 rounded border border-blue-400/30 transition-all text-sm"
-          >
-            {isPaused ? '▶️ 继续' : '⏸️ 暂停'}
-          </button>
-
-          {/* 时间速度控制 */}
-          <div className="space-y-1">
-            <div className="flex justify-between text-xs text-gray-300">
-              <span>时间流速</span>
-              <span className="text-blue-300">{currentTimeSpeed.toFixed(1)}x</span>
-            </div>
-            <input
-              type="range"
-              min="0.1"
-              max="10"
-              step="0.1"
-              value={currentTimeSpeed}
-              onChange={(e) => setCurrentTimeSpeed(parseFloat(e.target.value))}
-              className="w-full"
-            />
-            <div className="flex gap-1">
-              {[0.5, 1, 2, 5].map((speed) => (
-                <button
-                  key={speed}
-                  onClick={() => setCurrentTimeSpeed(speed)}
-                  className="flex-1 px-2 py-1 bg-white/5 hover:bg-white/10 text-gray-300 text-[10px] rounded border border-white/10"
-                >
-                  {speed}x
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* 自转控制 */}
-          <div className="space-y-1 pt-2 border-t border-white/10">
-            <button
-              onClick={() => setEnableRotation(!enableRotation)}
-              className="w-full px-3 py-2 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 rounded border border-purple-400/30 transition-all text-sm"
-            >
-              🌐 自转: {enableRotation ? 'ON' : 'OFF'}
-            </button>
-            
-            {enableRotation && (
-              <div className="space-y-1">
-                <div className="flex justify-between text-xs text-gray-300">
-                  <span>自转速度</span>
-                  <span className="text-purple-300">{rotationSpeed.toFixed(1)}x</span>
-                </div>
-                <input
-                  type="range"
-                  min="0.1"
-                  max="5"
-                  step="0.1"
-                  value={rotationSpeed}
-                  onChange={(e) => setRotationSpeed(parseFloat(e.target.value))}
-                  className="w-full"
-                />
-                <div className="flex gap-1">
-                  {[0.5, 1, 2, 3].map((speed) => (
-                    <button
-                      key={speed}
-                      onClick={() => setRotationSpeed(speed)}
-                      className="flex-1 px-2 py-1 bg-white/5 hover:bg-white/10 text-gray-300 text-[10px] rounded border border-white/10"
-                    >
-                      {speed}x
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* 操作提示 */}
-          <div className="text-[10px] text-gray-400 space-y-0.5 pt-2 border-t border-white/10">
-            <div>🖱️ 拖动：旋转视角</div>
-            <div>🎯 滚轮：缩放距离</div>
-            <div>↔️ 右键：平移位置</div>
-            <div>⌨️ 按 R：切换自转</div>
-          </div>
-        </div>
-      )}
-
-      {/* 标题标签 */}
-      <div className={`absolute ${isMobile ? 'top-2 left-2' : 'top-4 left-4'} bg-gradient-to-r from-blue-500/20 to-purple-500/20 backdrop-blur-sm px-2 py-1 sm:px-4 sm:py-2 rounded-lg border border-blue-400/40`}>
-        <span className="text-blue-300 font-bold text-[10px] sm:text-sm">🌌 太阳系 3D 实时模拟</span>
-        {!isMobile && (
-          <div className="text-gray-400 text-[10px] mt-0.5">
-            基于 NASA 标准天文数据
-          </div>
+            onClick={() => { setShowPlanetList(!showPlanetList); setShowControls(false); }}
+            className={`${isMobile ? 'w-8 h-8 text-sm' : 'w-9 h-9 text-base'} rounded-lg bg-black/80 backdrop-blur-sm border text-white/90 flex items-center justify-center hover:bg-white/10 transition-all ${showPlanetList ? 'border-blue-400/50' : 'border-white/20'}`}
+            title="行星列表"
+          >☰</button>
         )}
-        {!texturesLoaded && (
-          <div className="text-yellow-400 text-[10px] mt-1">
-            📥 正在加载真实纹理...
-          </div>
-        )}
+        {/* ⚙️ 场景控制 */}
+        <button
+          onClick={() => { setShowControls(!showControls); setShowPlanetList(false); }}
+          className={`${isMobile ? 'w-8 h-8 text-sm' : 'w-9 h-9 text-base'} rounded-lg bg-black/80 backdrop-blur-sm border text-white/90 flex items-center justify-center hover:bg-white/10 transition-all ${showControls ? 'border-blue-400/50' : 'border-white/20'}`}
+          title="场景控制"
+        >⚙️</button>
       </div>
 
-      {/* 信息面板 - 移动端隐藏 */}
-      {!isMobile && (
-        <div className="absolute bottom-4 right-4 bg-black/80 backdrop-blur-sm px-3 py-2 rounded-lg border border-white/20 text-[10px] text-gray-400 space-y-1 max-w-[200px]">
-          <div className="font-medium text-white/80">📐 比例说明</div>
-          <div>• 天体大小：真实比例</div>
-          <div>• 轨道距离：非真实比例</div>
-          <div>• 卫星轨道：动态放大便于观察</div>
-          <div className="pt-1 border-t border-white/10">1 AU = 1.496 亿 km</div>
-          <div>数据来源：NASA JPL</div>
-          <div className="text-yellow-400 pt-1 border-t border-white/10">💡 点击一次：聚焦 | 点击二次：详情</div>
+      {/* 行星列表下拉面板 */}
+      <AnimatePresence>
+        {showPlanetList && showLabels && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.12 }}
+            className={`absolute ${isMobile ? 'top-12 right-2 w-[130px]' : 'top-16 right-4 w-[150px]'} z-20 space-y-0.5 max-h-[320px] overflow-y-auto bg-black/90 backdrop-blur-md rounded-xl border border-white/20 shadow-2xl p-1.5`}
+          >
+            {SOLAR_SYSTEM_DATA.filter(b => isMobile ? b.type !== 'moon' : true).map((body) => (
+              <div
+                key={body.id}
+                onClick={() => handleBodyClick(body)}
+                className={`flex items-center gap-1.5 px-2 py-1 rounded-lg cursor-pointer hover:bg-white/10 transition-all ${isMobile ? 'text-[10px]' : 'text-[11px]'}`}
+                style={{
+                  borderColor: focusedBody?.id === body.id ? body.color : 'transparent',
+                  border: `1px solid ${focusedBody?.id === body.id ? body.color : 'transparent'}`,
+                  boxShadow: focusedBody?.id === body.id ? `0 0 6px ${body.color}40` : undefined,
+                  paddingLeft: body.type === 'moon' ? '1rem' : undefined,
+                }}
+              >
+                <div
+                  className={`${body.type === 'moon' ? 'w-1.5 h-1.5' : 'w-2.5 h-2.5'} rounded-full flex-shrink-0`}
+                  style={{ backgroundColor: body.color, boxShadow: `0 0 4px ${body.color}` }}
+                />
+                <span className="text-white/90 truncate">{body.nameChinese}</span>
+                {!isMobile && body.semiMajorAxis > 0 && body.type !== 'moon' && (
+                  <span className="text-gray-500 text-[8px] ml-auto flex-shrink-0">{body.semiMajorAxis.toFixed(1)}</span>
+                )}
+              </div>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 场景控制下拉面板 */}
+      <AnimatePresence>
+        {showControls && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.12 }}
+            className={`absolute ${isMobile ? 'top-12 right-2 w-[200px]' : 'top-16 right-4 w-[220px]'} z-20 bg-black/90 backdrop-blur-md rounded-xl border border-white/20 shadow-2xl overflow-hidden`}
+          >
+            <div className={`${isMobile ? 'p-2 space-y-2' : 'p-3 space-y-2.5'}`}>
+              {/* ── 时间控制 ── */}
+              <div className="space-y-1.5">
+                <div className={`text-gray-400 font-medium ${isMobile ? 'text-[9px]' : 'text-[10px]'}`}>⏱ 时间</div>
+                <button
+                  onClick={() => onPauseToggle?.()}
+                  className={`w-full ${isMobile ? 'py-1 text-[10px]' : 'py-1.5 text-xs'} rounded-lg border transition-all ${isPaused ? 'bg-green-500/20 border-green-400/30 text-green-300 hover:bg-green-500/30' : 'bg-orange-500/20 border-orange-400/30 text-orange-300 hover:bg-orange-500/30'}`}
+                >
+                  {isPaused ? '▶ 继续' : '⏸ 暂停'}
+                </button>
+                <div className="space-y-0.5">
+                  <div className={`flex justify-between ${isMobile ? 'text-[9px]' : 'text-[10px]'} text-gray-400`}>
+                    <span>流速</span>
+                    <span className="text-blue-300 font-mono">{currentTimeSpeed.toFixed(1)}x</span>
+                  </div>
+                  <input
+                    type="range" min="0.1" max="10" step="0.1"
+                    value={currentTimeSpeed}
+                    onChange={(e) => onTimeSpeedChange?.(parseFloat(e.target.value))}
+                    className="w-full h-1 accent-blue-400"
+                  />
+                  <div className="flex gap-1">
+                    {[0.5, 1, 2, 5].map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => onTimeSpeedChange?.(s)}
+                        className={`flex-1 py-0.5 rounded text-[8px] border transition-all ${Math.abs(currentTimeSpeed - s) < 0.05 ? 'bg-blue-500/30 border-blue-400/50 text-blue-200' : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'}`}
+                      >
+                        {s}x
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* ── 显示选项 ── */}
+              <div className="space-y-1.5 pt-2 border-t border-white/10">
+                <div className={`text-gray-400 font-medium ${isMobile ? 'text-[9px]' : 'text-[10px]'}`}>👁 显示</div>
+                <div className="grid grid-cols-2 gap-1">
+                  <button
+                    onClick={() => setShowSatellites(!showSatellites)}
+                    className={`${isMobile ? 'py-1 text-[10px]' : 'py-1.5 text-xs'} rounded-lg border transition-all ${showSatellites ? 'bg-cyan-500/20 border-cyan-400/30 text-cyan-300' : 'bg-white/5 border-white/10 text-gray-400'}`}
+                  >
+                    🌙 卫星
+                  </button>
+                  <button
+                    onClick={() => setEnableRotation(!enableRotation)}
+                    className={`${isMobile ? 'py-1 text-[10px]' : 'py-1.5 text-xs'} rounded-lg border transition-all ${enableRotation ? 'bg-purple-500/20 border-purple-400/30 text-purple-300' : 'bg-white/5 border-white/10 text-gray-400'}`}
+                  >
+                    🌐 自转
+                  </button>
+                </div>
+                {enableRotation && (
+                  <div className="flex items-center gap-2">
+                    <span className={`text-purple-300 font-mono w-7 ${isMobile ? 'text-[9px]' : 'text-[10px]'}`}>{rotationSpeed.toFixed(1)}x</span>
+                    <input
+                      type="range" min="0.1" max="5" step="0.1"
+                      value={rotationSpeed}
+                      onChange={(e) => setRotationSpeed(parseFloat(e.target.value))}
+                      className="flex-1 h-1 accent-purple-400"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* ── 操作提示 ── */}
+              <div className={`pt-1.5 border-t border-white/10 text-gray-500 ${isMobile ? 'text-[8px]' : 'text-[9px]'}`}>
+                {isMobile ? '👆 拖动旋转 | 双指缩放' : '🖱 拖动 · 滚轮缩放 · 右键平移'}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 纹理加载指示器（仅加载时显示，左下角小字） */}
+      {!texturesLoaded && (
+        <div className="absolute bottom-4 left-4 text-yellow-400/70 text-[10px]">
+          📥 正在加载纹理...
         </div>
       )}
+
+      {/* 比例说明 — 底部居中，紧凑单行 */}
+      <div className={`absolute ${isMobile ? 'bottom-2' : 'bottom-3'} left-1/2 -translate-x-1/2 bg-black/70 backdrop-blur-sm px-3 py-1.5 rounded-lg border border-white/10 text-[9px] text-gray-500 flex items-center gap-2 whitespace-nowrap`}>
+        <span>📐 天体大小：真实比例</span>
+        <span className="text-white/10">|</span>
+        <span>轨道距离：非真实比例</span>
+        <span className="text-white/10">|</span>
+        <span>数据：NASA JPL</span>
+        <span className="text-white/10">|</span>
+        <span className="text-yellow-400/60">点击聚焦 · 再点详情</span>
+      </div>
 
       {/* 聚焦提示 - 右下角（比例说明上方） */}
       {focusedBody && !showInfo && (
@@ -1104,7 +1511,7 @@ export function SolarSystemVisualization3D({
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 20 }}
-          className={`absolute ${isMobile ? 'bottom-14 right-2' : 'bottom-[140px] right-4'} bg-blue-500/20 backdrop-blur-sm px-2 py-1 sm:px-3 sm:py-2 rounded-lg border border-blue-400/40 text-[10px] sm:text-xs z-10`}
+          className={`absolute ${isMobile ? 'bottom-10 right-2' : 'bottom-12 right-4'} bg-blue-500/20 backdrop-blur-sm px-2 py-1 sm:px-3 sm:py-2 rounded-lg border border-blue-400/40 text-[10px] sm:text-xs z-10`}
         >
           <div className="text-blue-300 font-medium">
             正在观察: {focusedBody.nameChinese}
