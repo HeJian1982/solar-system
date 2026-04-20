@@ -2,49 +2,38 @@
 
 ## 📍 当前状态
 
-✅ **地球纹理已就绪** - 高质量8K Natural Earth III纹理
-- 文件: `2k_earth_daymap.jpg`
-- 来源: Natural Earth III (免费公共领域)
-- 分辨率: 8192x4096 (约9.5MB)
+所有基础纹理均已就绪，来源为 **Solar System Scope** (CC Attribution 4.0) 的 2K 分辨率 JPG：
 
-## 🌍 刷新浏览器查看真实地球
+| 天体 | 文件 |
+| --- | --- |
+| ☀️ 太阳 | `2k_sun.jpg` |
+| ☿️ 水星 | `2k_mercury.jpg` |
+| ♀️ 金星 | `2k_venus_surface.jpg` |
+| 🌍 地球 | `2k_earth_daymap.jpg` |
+| ♂️ 火星 | `2k_mars.jpg` |
+| ♃ 木星 | `2k_jupiter.jpg` |
+| ♄ 土星 | `2k_saturn.jpg` |
+| ♅ 天王星 | `2k_uranus.jpg` |
+| ♆ 海王星 | `2k_neptune.jpg` |
+| 🌙 月球 | `2k_moon.jpg` |
 
-地球现在将显示：
-- 真实的大陆和海洋
-- 准确的地形颜色
-- 专业级地理纹理
+## 🪐 补充或替换纹理
 
-## 🪐 其他行星纹理下载
+如需更高分辨率或替换某个纹理：
 
-### 方法1: 手动下载（推荐）
+1. 访问 **Solar System Scope**: https://www.solarsystemscope.com/textures/
+2. 下载对应 JPG（建议 2K，兼顾质量与性能）
+3. 覆盖到此目录，保持上表中的文件名
+4. 硬刷新浏览器（Ctrl+Shift+R）清除纹理缓存
 
-访问 **Solar System Scope**: https://www.solarsystemscope.com/textures/
-
-1. 点击每个行星
-2. 下载2K分辨率JPG
-3. 保存到此目录
-4. 命名格式: `2k_<行星名>.jpg`
-
-**需要下载的行星**:
-- ☀️ 太阳: `2k_sun.jpg`
-- ☿️ 水星: `2k_mercury.jpg`
-- ♀️ 金星: `2k_venus_surface.jpg`
-- ♂️ 火星: `2k_mars.jpg`
-- ♃ 木星: `2k_jupiter.jpg`
-- ♄ 土星: `2k_saturn.jpg`
-- ♅ 天王星: `2k_uranus.jpg`
-- ♆ 海王星: `2k_neptune.jpg`
-- 🌙 月球: `2k_moon.jpg`
-
-### 方法2: 使用自动化脚本
+或使用 PowerShell 直接下载单个文件：
 
 ```powershell
-# 在PowerShell中运行
-cd "d:\HJ\个人网站入口\public\textures\planets"
-.\download-textures.ps1
+Invoke-WebRequest `
+  -Uri "https://www.solarsystemscope.com/textures/download/2k_earth_daymap.jpg" `
+  -OutFile "public\textures\planets\2k_earth_daymap.jpg" `
+  -UseBasicParsing
 ```
-
-**注意**: 由于CORS限制，脚本可能无法下载所有纹理，建议使用方法1手动下载。
 
 ## 📋 可选纹理
 
